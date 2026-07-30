@@ -4883,6 +4883,7 @@ function processConsoleCommand(cmd, args, rights, sessionid) {
                     try { require('win-info'); availcommands += ',qfe,defender,av,installedstoreapps'; } catch (ex) { }
                     try { require('win-updates'); availcommands += ',winupdates,winupdatesinstalled,winupdateshistory,winupdatesdedup'; } catch (ex) { }
                     try { require('win-deskutils'); availcommands += ',mousetrails,idletime,deskbackground'; } catch (ex) { }
+                    try { require('win-uiautomation'); availcommands += ',uiwindows'; } catch (ex) { }
                 }
                 if (amt != null) { availcommands += ',amt,amtconfig,amtevents'; }
                 if (process.platform != 'freebsd') { availcommands += ',vm'; }
@@ -4940,6 +4941,41 @@ function processConsoleCommand(cmd, args, rights, sessionid) {
                 try { require('win-deskutils'); } catch (ex) { response = 'Unknown command "idletime", type "help" for list of available commands.'; break; }
                 require('win-deskutils').idle.getSecondsAllSessions().then(function (seconds) { sendConsoleText((seconds === -1 ? 'No active users' : 'Idle time for all sessions: ' + seconds + ' seconds'), sessionid); });
                 break;
+            case 'uiwindows': {
+                // SPIKE: prove that top-level window enumeration works from agent JS via _GenericMarshal.
+                // Usage: uiwindows [selftest|list|find <text>|activate <handle>|foreground] [--session <tsid>]
+                try { require('win-uiautomation'); } catch (ex) { response = 'Unknown command "uiwindows", type "help" for list of available commands.'; break; }
+                var uia = require('win-uiautomation');
+                var sub = (args['_'].length > 0) ? args['_'][0] : 'selftest';
+                // The agent runs in session 0, which has no view of the interactive desktop, so
+                // dispatch into a user session unless the caller explicitly asks for --local.
+                var tsid = (args.local != null) ? undefined : ((args.session != null) ? parseInt(args.session) : null);
+                try {
+                    switch (sub) {
+                        case 'selftest':
+                            response = JSON.stringify(uia.selfTest(tsid), null, 2);
+                            break;
+                        case 'list':
+                            response = JSON.stringify(uia.enumerateWindows({}, tsid), null, 2);
+                            break;
+                        case 'find':
+                            if (args['_'].length != 2) { response = 'Proper usage: uiwindows find [text]'; break; }
+                            response = JSON.stringify(uia.findWindow(args['_'][1], tsid), null, 2);
+                            break;
+                        case 'activate':
+                            if (args['_'].length != 2) { response = 'Proper usage: uiwindows activate [handle]'; break; }
+                            response = JSON.stringify(uia.activateWindow(args['_'][1], tsid), null, 2);
+                            break;
+                        case 'foreground':
+                            response = JSON.stringify(uia.getForegroundWindow(tsid), null, 2);
+                            break;
+                        default:
+                            response = 'Proper usage: uiwindows [selftest|list|find (text)|activate (handle)|foreground] [--session (tsid)] [--local]';
+                            break;
+                    }
+                } catch (ex) { response = 'uiwindows failed: ' + ex; }
+                break;
+            }
             case 'taskbar':
                 try { require('win-utils'); } catch (ex) { response = 'Unknown command "taskbar", type "help" for list of available commands.'; break; }
                 switch (args['_'].length) {
