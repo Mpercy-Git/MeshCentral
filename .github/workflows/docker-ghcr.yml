@@ -29,6 +29,8 @@ on:
       - 'claude/**'
     tags:
       - 'v*'
+      # Immutable handles for throwaway test builds, without implying a version.
+      - 'spike-*'
   release:
     types: [ published ]
 
