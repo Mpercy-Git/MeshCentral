@@ -1,11 +1,18 @@
 name: Release
+
+# Disabled in this fork: this workflow cuts MeshCentral's own releases. Merging from
+# upstream bumps package.json, which fired it here and made it try to create a duplicate
+# release for the upstream version number. It also needs "contents: write", which the
+# fork's read-only default token does not grant, so it failed with HTTP 403.
+# The automatic trigger is removed; run it by hand if a fork release is ever wanted
+# (that also needs a permissions block granting contents: write).
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - 'package.json'
+  # push:
+  #   branches:
+  #     - master
+  #   paths:
+  #     - 'package.json'
 
 jobs:
   build:
