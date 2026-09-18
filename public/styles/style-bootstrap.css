@@ -1600,6 +1600,13 @@ NoMeshesPanel img {
     font-size: 10px;
 }
 
+.auth-app-qrcode {
+    background: #FFF;
+    display: inline-block;
+    line-height: 0;
+    padding: 8px;
+}
+
 #p2AccountActions .mL {
     margin-left: 40px;
 }
@@ -3247,12 +3254,12 @@ body[data-bs-theme="light"] {
 .baricon {
     float: left;
     height: 24px;
-    width: 24px;
-    background-color: white;
+    width: 30px;
+    background: transparent
 }
 
 .night .baricon {
-    background-color: black;
+    background: transparent
 }
 
 .baricon div {
