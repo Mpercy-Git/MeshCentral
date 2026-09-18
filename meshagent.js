@@ -1762,7 +1762,7 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                         }
                     }
                     if (command.agent === 'android') {
-                        // Return server title and image for MeshCentral Assistant
+                        // Return server title, subtitle and image for the MeshCentral Android agent
                         if ((domain.androidcustomization != null) && (typeof domain.androidcustomization == 'object')) {
                             var ok = false;
                             if (typeof domain.androidcustomization.title == 'string') { ok = true; command.title = domain.androidcustomization.title; }
@@ -1991,7 +1991,7 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                 }
 
                 // Push Messaging Token
-                if ((command.pmt != null) && (typeof command.pmt == 'string') && (device.pmt != command.pmt)) {
+                if (common.validateString(command.pmt, 1, 4096) && (device.pmt != command.pmt)) {
                     if (typeof device.pmt == 'string') { db.Remove('pmt_' + device.pmt); }
                     device.pmt = command.pmt;
                     change = 1; // Don't save this change as an event to the db, so no log=1.

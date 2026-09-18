@@ -2510,7 +2510,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         if (obj.parent.firebase == null) { try { ws.close(); } catch (e) { } return; }
         if (obj.parent.firebase.setupRelay == null) { try { ws.close(); } catch (e) { } return; }
         if (obj.parent.config.firebase.relayserver == null) { try { ws.close(); } catch (e) { } return; }
-        if ((typeof obj.parent.config.firebase.relayserver == 'string') && (req.query.key != obj.parent.config.firebase.relayserver)) { res.sendStatus(404); try { ws.close(); } catch (e) { } return; }
+        if ((typeof obj.parent.config.firebase.relayserver == 'string') && (req.query.key != obj.parent.config.firebase.relayserver)) { try { ws.close(); } catch (e) { } return; }
         obj.parent.firebase.setupRelay(ws);
     }
 
@@ -10704,6 +10704,29 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 });
             }
             db.Set({ _id: 'pmt_' + node.pmt, type: 'pmt', domain: node.domain, time: Date.now(), nodeid: node._id })
+        });
+    }
+
+    // Remove a push messaging token from the device that holds it. Called when the push provider tells us the token is no longer valid.
+    obj.removePushMessagingToken = function (pmt) {
+        if (typeof pmt != 'string') return;
+        db.Get('pmt_' + pmt, function (err, docs) {
+            if ((err != null) || (docs == null) || (docs.length != 1)) return;
+            db.Get(docs[0].nodeid, function (nerr, ndocs) {
+                if ((nerr != null) || (ndocs == null) || (ndocs.length != 1)) return;
+                const node = ndocs[0];
+                if (node.pmt !== pmt) return;
+
+                // Remove the push messaging token and save the node.
+                delete node.pmt;
+                db.Set(node);
+                db.Remove('pmt_' + pmt);
+
+                // Event the node change
+                var event = { etype: 'node', action: 'changenode', nodeid: node._id, domain: node.domain, node: obj.CloneSafeNode(node) }
+                if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+                parent.DispatchEvent(['*', node.meshid, node._id], obj, event);
+            });
         });
     }
 

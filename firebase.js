@@ -34,8 +34,11 @@ module.exports.CreateFirebase = function (parent, serviceAccount) {
     const tokenToNodeMap = {}; // Token --> { nid: nodeid, mid: meshid }
     
     // Initialize Firebase Admin with server key and project ID
-    if (!admin.apps.length) {
-        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    try {
+        if (!admin.apps.length) { admin.initializeApp({ credential: admin.credential.cert(serviceAccount) }); }
+    } catch (ex) {
+        console.log('ERROR: Unable to initialize Firebase: ' + ex);
+        return null;
     }
     
     // Setup logging
@@ -46,6 +49,24 @@ module.exports.CreateFirebase = function (parent, serviceAccount) {
         obj.log = function () { }
     }
     
+    // MeshCentral uses "Normal" and "High", but FCM only accepts "normal" and "high". Anything else is rejected as an invalid payload.
+    function normalizePriority(priority) {
+        if (typeof priority != 'string') return 'high';
+        return (priority.toLowerCase() == 'normal') ? 'normal' : 'high';
+    }
+
+    // FCM requires that every value in the data section be a string, any other type is rejected as an invalid payload.
+    function normalizeData(data) {
+        const r = {};
+        if ((data != null) && (typeof data == 'object')) {
+            for (var i in data) {
+                if (data[i] == null) continue;
+                r[i] = (typeof data[i] == 'string') ? data[i] : JSON.stringify(data[i]);
+            }
+        }
+        return r;
+    }
+
     // Function to send notifications
     obj.sendToDevice = function (node, payload, options, func) {
         if (typeof node === 'string') {
@@ -53,7 +74,7 @@ module.exports.CreateFirebase = function (parent, serviceAccount) {
                 if (!err && docs && docs.length === 1) {
                     obj.sendToDeviceEx(docs[0], payload, options, func);
                 } else {
-                    func(0, 'error');
+                    if (typeof func == 'function') { func(0, 'error', 'Device not found'); }
                 }
             });
         } else {
@@ -63,10 +84,10 @@ module.exports.CreateFirebase = function (parent, serviceAccount) {
     
     // Send an outbound push notification
     obj.sendToDeviceEx = function (node, payload, options, func) {
-        if (!node || typeof node.pmt !== 'string') {
-            func(0, 'error');
-            return;
-        }
+        if (typeof func != 'function') { func = function () { }; }
+        if (!node || typeof node.pmt !== 'string') { func(0, 'error', 'No push messaging token for this device'); return; }
+        if ((options == null) || (typeof options != 'object')) { options = {}; }
+        if ((payload == null) || (typeof payload != 'object')) { payload = {}; }
         
         obj.log('sendToDevice, node:' + node._id + ', payload: ' + JSON.stringify(payload) + ', options: ' + JSON.stringify(options));
         
@@ -79,24 +100,35 @@ module.exports.CreateFirebase = function (parent, serviceAccount) {
             };
         }
         
+        // Fill in the server agent cert hash
+        payload.data = normalizeData(payload.data);
+        if (payload.data.shash == null) { payload.data.shash = parent.webserver.agentCertificateHashBase64; } // Add the server agent hash, new Android agents will reject notifications that don't have this.
+
+        // Build the FCM message, leaving out any section we don't have a value for
         const message = {
             token: node.pmt,
-            notification: payload.notification,
             data: payload.data,
-            android: {
-                priority: options.priority || 'high',
-                ttl: options.timeToLive ? options.timeToLive * 1000 : undefined
-            }
+            android: { priority: normalizePriority(options.priority) }
         };
+        if ((payload.notification != null) && (typeof payload.notification == 'object')) { message.notification = payload.notification; }
+        if ((typeof options.timeToLive == 'number') && (options.timeToLive > 0)) { message.android.ttl = options.timeToLive * 1000; } // FCM expects the time to live in milliseconds
         
         admin.messaging().send(message).then(function (response) {
             obj.stats.sent++;
-            obj.log('Success');
-            func(response);
+            obj.log('Success: ' + response);
+            func(++obj.messageId, null, response);
         }).catch(function (error) {
             obj.stats.sendError++;
             obj.log('Fail: ' + error);
-            func(0, error);
+
+            // If the token is no longer valid, remove it from the device so we stop pushing to it
+            const errorCode = ((error != null) && (error.errorInfo != null)) ? error.errorInfo.code : null;
+            if ((errorCode == 'messaging/registration-token-not-registered') || (errorCode == 'messaging/invalid-registration-token')) {
+                if ((parent.webserver != null) && (typeof parent.webserver.removePushMessagingToken == 'function')) { parent.webserver.removePushMessagingToken(node.pmt); }
+                delete tokenToNodeMap[node.pmt];
+            }
+
+            func(0, 'error', ((error != null) && (typeof error.message == 'string')) ? error.message : ('' + error));
         });
     };
     
@@ -234,8 +266,9 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
         }
         
         obj.sendToDevice = function (node, payload, options, func) {
+            if (typeof func != 'function') { func = function () { }; }
             if (typeof node == 'string') {
-                parent.db.Get(node, function (err, docs) { if ((err == null) && (docs != null) && (docs.length == 1)) { obj.sendToDeviceEx(docs[0], payload, options, func); } else { func(0, 'error'); } })
+                parent.db.Get(node, function (err, docs) { if ((err == null) && (docs != null) && (docs.length == 1)) { obj.sendToDeviceEx(docs[0], payload, options, func); } else { func(0, 'error', 'Device not found'); } })
             } else {
                 obj.sendToDeviceEx(node, payload, options, func);
             }
@@ -243,7 +276,9 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
         
         obj.sendToDeviceEx = function (node, payload, options, func) {
             parent.debug('email', 'Firebase-sendToDevice-webSocket');
-            if ((node == null) || (typeof node.pmt != 'string')) { func(0, 'error'); return; }
+            if (typeof func != 'function') { func = function () { }; }
+            if ((node == null) || (typeof node.pmt != 'string')) { func(0, 'error', 'No push messaging token for this device'); return; }
+            if ((payload == null) || (typeof payload != 'object')) { payload = {}; }
             obj.log('sendToDevice, node:' + node._id + ', payload: ' + JSON.stringify(payload) + ', options: ' + JSON.stringify(options));
             
             // Fill in our lookup table
@@ -255,15 +290,15 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
             
             // If the web socket is open, send now
             if (obj.wsopen == true) {
-                try { obj.wsclient.send(JSON.stringify({ pmt: node.pmt, payload: payload, options: options })); } catch (ex) { func(0, 'error'); obj.stats.sendError++; return; }
+                try { obj.wsclient.send(JSON.stringify({ pmt: node.pmt, payload: payload, options: options })); } catch (ex) { obj.stats.sendError++; obj.log('Fail: ' + ex); func(0, 'error', 'Unable to send to the push relay'); return; }
                 obj.stats.sent++;
                 obj.log('Sent');
-                func(1);
+                func(++obj.messageId, null);
             } else {
                 // TODO: Buffer the push messages until TTL.
                 obj.stats.sendError++;
                 obj.log('Error');
-                func(0, 'error');
+                func(0, 'error', 'Not connected to the push relay');
             }
         }
         obj.connectWebSocket();
@@ -272,8 +307,9 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
         obj.pushOnly = true;
         
         obj.sendToDevice = function (node, payload, options, func) {
+            if (typeof func != 'function') { func = function () { }; }
             if (typeof node == 'string') {
-                parent.db.Get(node, function (err, docs) { if ((err == null) && (docs != null) && (docs.length == 1)) { obj.sendToDeviceEx(docs[0], payload, options, func); } else { func(0, 'error'); } })
+                parent.db.Get(node, function (err, docs) { if ((err == null) && (docs != null) && (docs.length == 1)) { obj.sendToDeviceEx(docs[0], payload, options, func); } else { func(0, 'error', 'Device not found'); } })
             } else {
                 obj.sendToDeviceEx(node, payload, options, func);
             }
@@ -281,9 +317,11 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
         
         obj.sendToDeviceEx = function (node, payload, options, func) {
             parent.debug('email', 'Firebase-sendToDevice-httpPost');
-            if ((node == null) || (typeof node.pmt != 'string')) return;
+            if (typeof func != 'function') { func = function () { }; }
+            if ((node == null) || (typeof node.pmt != 'string')) { func(0, 'error', 'No push messaging token for this device'); return; }
             
             // Fill in the server agent cert hash
+            if ((payload == null) || (typeof payload != 'object')) { payload = {}; }
             if (payload.data == null) { payload.data = {}; }
             if (payload.data.shash == null) { payload.data.shash = parent.webserver.agentCertificateHashBase64; } // Add the server agent hash, new Android agents will reject notifications that don't have this.
             
@@ -305,10 +343,10 @@ module.exports.CreateFirebaseRelay = function (parent, url, key) {
             const req = https.request(httpOptions, function (res) {
                 obj.log('Response: ' + res.statusCode);
                 if (res.statusCode == 200) { obj.stats.sent++; } else { obj.stats.sendError++; }
-                if (func != null) { func(++obj.messageId, (res.statusCode == 200) ? null : 'error'); }
+                func(++obj.messageId, (res.statusCode == 200) ? null : 'error', (res.statusCode == 200) ? null : ('Push relay returned ' + res.statusCode));
             });
             parent.debug('email', 'Firebase-sending');
-            req.on('error', function (error) { obj.stats.sent++; func(++obj.messageId, 'error'); });
+            req.on('error', function (error) { obj.stats.sendError++; obj.log('Fail: ' + error); func(0, 'error', '' + error); });
             req.write(querydata);
             req.end();
         }
