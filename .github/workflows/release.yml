@@ -24,8 +24,9 @@ jobs:
         run: echo Release ID ${{ steps.release.outputs.release_id }}
       - name: Trigger Docker builds
         if: ${{ steps.release.outputs.released == 'true' }}
+        # docker-alpine.yml and docker-debian.yml are disabled in this fork: they push to
+        # Docker Hub and need secrets that are not configured here. Build to ghcr.io instead.
         run: |
-          gh workflow run docker-alpine.yml -r ${{ steps.release.outputs.release_tag }}
-          gh workflow run docker-debian.yml -r ${{ steps.release.outputs.release_tag }}
+          gh workflow run docker-ghcr.yml -r ${{ steps.release.outputs.release_tag }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

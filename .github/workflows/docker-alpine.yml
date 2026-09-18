@@ -1,11 +1,16 @@
 name: Docker-Builder-Alpine
 
+# Disabled in this fork: this workflow pushes to Docker Hub and requires the
+# DOCKER_USERNAME / DOCKER_PASSWORD secrets, which are not configured here, so the
+# login step fails before anything is built. The automatic triggers (daily cron and
+# release published) have been removed; docker-ghcr.yml publishes to ghcr.io instead.
+# Restore the triggers below if Docker Hub credentials are ever added.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *' # Daily at 00:00 UTC
-  release:
-    types: [ published ]
+  # schedule:
+  #   - cron: '0 0 * * *' # Daily at 00:00 UTC
+  # release:
+  #   types: [ published ]
 
 permissions:
   contents: read
