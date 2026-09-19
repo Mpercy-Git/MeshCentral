@@ -139,6 +139,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
     obj.meshDesktopMultiplexHandler = require('./meshdesktopmultiplex.js');
     obj.meshIderHandler = require('./amt/amt-ider.js');
     obj.meshUserHandler = require('./meshuser.js');
+    obj.mcpServerHandler = null; // Created below only if the MCP endpoint is enabled
     obj.interceptor = require('./interceptor');
     obj.uaparser = require('ua-parser-js');
     obj.uaclienthints = require('ua-client-hints-js');
@@ -7488,6 +7489,18 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         }
         function setupHTTPHandlers() {
             // Setup all HTTP handlers
+
+            // Create the MCP server if enabled. Requires the desktop multiplexor, since the
+            // screen tools read their frames from it rather than opening their own sessions.
+            if ((parent.config.settings != null) && (typeof parent.config.settings.mcp == 'object') && (parent.config.settings.mcp.enabled === true)) {
+                if (parent.config.settings.desktopmultiplex === true) {
+                    obj.mcpServerHandler = require('./mcpserver.js').CreateMcpServer(obj);
+                    console.log('MCP server enabled at /mcp.ashx' + (obj.mcpServerHandler.allowInput ? ', input allowed' : ', capture only') + '.');
+                } else {
+                    console.log('WARNING: settings.mcp requires settings.desktopMultiplex to be enabled, MCP server not started.');
+                }
+            }
+
             if (parent.pluginHandler != null) {
                 parent.pluginHandler.callHook('hook_setupHttpHandlers', obj, parent);
             }
@@ -7545,6 +7558,16 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 obj.app.ws(url + 'apf.ashx', function (ws, req) { obj.parent.mpsserver.onWebSocketConnection(ws, req); })
                 obj.app.get(url + 'webrelay.ashx', function (req, res) { res.send('Websocket connection expected'); });
                 obj.app.get(url + 'health.ashx', function (req, res) { res.send('ok'); }); // TODO: Perform more server checking.
+
+                // Model Context Protocol endpoint. Off unless explicitly enabled, since it
+                // exposes device access to any client holding a valid login token.
+                if (obj.mcpServerHandler != null) {
+                    obj.app.all(url + 'mcp.ashx', obj.bodyParser.json({ limit: '1mb' }), function (req, res) {
+                        const domain = getDomain(req);
+                        if (domain == null) { res.sendStatus(404); return; }
+                        obj.mcpServerHandler.handleRequest(req, res, domain);
+                    });
+                }
                 obj.app.ws(url + 'webrelay.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, handleRelayWebSocket); });
                 obj.app.ws(url + 'webider.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, function (ws1, req1, domain, user, cookie, authData) { obj.meshIderHandler.CreateAmtIderSession(obj, obj.db, ws1, req1, obj.args, domain, user); }); });
                 obj.app.ws(url + 'control.ashx', function (ws, req) {

@@ -655,6 +655,52 @@
           "default": false,
           "description": "When true, enabled a server modules that efficiently splits a remote desktop stream to multiple browsers. Also allows slow browsers to not slow down the session for fast ones, this comes at the cost of extra server memory and processing for all remote desktop sessions."
         },
+        "mcp": {
+          "type": "object",
+          "description": "Serves the Model Context Protocol at /mcp.ashx so an AI agent can inspect and act on devices. Requires desktopMultiplex. Clients authenticate with a login token using HTTP Basic authentication, and every call is checked against that account's device rights.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, the MCP endpoint is served at /mcp.ashx."
+            },
+            "allowInput": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, MCP clients may send mouse and keyboard input to devices. Requires REMOTECONTROL rights on the device and a session that is not view-only. Off by default."
+            },
+            "allowShell": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, MCP clients may run commands and agent console commands on devices. This is remote code execution, requires AGENTCONSOLE rights, and is off by default."
+            },
+            "maxImageWidth": {
+              "type": "integer",
+              "default": 1280,
+              "description": "Screenshots are downscaled to at most this width before being returned."
+            },
+            "imageQuality": {
+              "type": "integer",
+              "default": 60,
+              "description": "JPEG quality used for screenshots, 1 to 100."
+            },
+            "sessionIdleTimeout": {
+              "type": "integer",
+              "default": 600,
+              "description": "Seconds an idle MCP session is kept before being discarded."
+            },
+            "maxSessionsPerUser": {
+              "type": "integer",
+              "default": 8,
+              "description": "Maximum concurrent MCP sessions for a single account."
+            },
+            "scriptTimeout": {
+              "type": "integer",
+              "default": 30,
+              "description": "Seconds a command started by an MCP client may run before being abandoned."
+            }
+          }
+        },
         "ipBlockedUserRedirect": {
           "type": "string",
           "default": null,

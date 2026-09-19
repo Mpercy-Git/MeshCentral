@@ -80,6 +80,16 @@
     "_webPush": { "email": "xxxxx@xxxxx.com" },
     "_publicPushNotifications": true,
     "_desktopMultiplex": true,
+    "_mcp": {
+      "enabled": true,
+      "allowInput": false,
+      "allowShell": false,
+      "maxImageWidth": 1280,
+      "imageQuality": 60,
+      "sessionIdleTimeout": 600,
+      "maxSessionsPerUser": 8,
+      "scriptTimeout": 30
+    },
     "_ipBlockedUserRedirect": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     "_userAllowedIP": "127.0.0.1,192.168.1.0/24",
     "_userBlockedIP": "127.0.0.1,::1,192.168.0.100",
