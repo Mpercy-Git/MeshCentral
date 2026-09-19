@@ -18,7 +18,6 @@ const WINDOWS = {
 };
 const ORDER = [100, 200, 300, 400, 500];
 
-let CALLBACK_STOPS_AFTER = null; // simulate "return value not honored" by stopping early
 
 function wideWrite(v, str, maxChars) {
     const buf = v.toBuffer();
@@ -35,28 +34,13 @@ const GM = {
         return { _size: size, toBuffer: () => buf, get String() { return buf.toString().split('\0')[0]; } };
     },
     CreatePointer: function () { const b = Buffer.alloc(8); return { toBuffer: () => b, Deref: () => null }; },
-    CreateCallbackProxy: function (fn, argc) { return { Callback: fn, State: {}, _argc: argc }; },
     CreateNativeProxy: function (dll) {
         const p = { _dll: dll, CreateMethod: function (n, alias) { p[alias || n] = (...a) => impl[n](...a); } };
         return p;
     }
 };
 
-let LAST_ENUM_LPARAM = 'unset';
-
 const impl = {
-    EnumWindows: (cb, lparam) => {
-        LAST_ENUM_LPARAM = lparam;
-        // On a real agent, a null/0 context here is a process-killing native fault, because
-        // the marshal thunk locates the JS function through it. Model that as a throw so the
-        // harness can assert we never pass 0 by default.
-        if (!lparam || lparam === 0) { throw new Error('SIMULATED NATIVE CRASH: EnumWindows called with lParam 0'); }
-        for (let i = 0; i < ORDER.length; i++) {
-            if (CALLBACK_STOPS_AFTER !== null && i >= CALLBACK_STOPS_AFTER) break;
-            cb({ Val: ORDER[i] }, { Val: 0 });
-        }
-        return { Val: 1 };
-    },
     GetTopWindow: () => ({ Val: ORDER[0] }),
     GetWindow: (h, cmd) => { const i = ORDER.indexOf(Number(h)); return { Val: (i >= 0 && i + 1 < ORDER.length) ? ORDER[i + 1] : 0 }; },
     GetForegroundWindow: () => ({ Val: 200 }),
@@ -86,12 +70,9 @@ function check(name, cond, detail) {
     if (!cond) failures++;
 }
 
-console.log('\n1. default path is the safe walk, never the callback');
-CALLBACK_STOPS_AFTER = null;
-LAST_ENUM_LPARAM = 'unset';
+console.log('\n1. sibling-walk enumeration and filtering');
 let r = uia.enumerateWindows({});
 check('method reported as walk', r.method === 'walk', 'got ' + r.method);
-check('EnumWindows never called by default', LAST_ENUM_LPARAM === 'unset');
 check('3 titled+visible windows kept', r.count === 3, 'got ' + r.count);
 check('untitled window filtered out', !r.windows.some(w => w.title === ''));
 check('invisible window filtered out', !r.windows.some(w => w.title === 'Invisible Thing'));
@@ -105,57 +86,25 @@ const calc = r.windows.find(w => w.title === 'Calculator');
 check('minimized flag read', calc.minimized === true);
 check('pid read', calc.pid === 4243);
 
-console.log('\n3. opt-in callback path passes State as lParam, not 0');
-CALLBACK_STOPS_AFTER = null;
-LAST_ENUM_LPARAM = 'unset';
-r = uia.enumerateWindows({ method: 'callback' });
-check('EnumWindows was called', LAST_ENUM_LPARAM !== 'unset');
-check('lParam is the proxy State, not 0', LAST_ENUM_LPARAM && LAST_ENUM_LPARAM !== 0, JSON.stringify(LAST_ENUM_LPARAM));
-check('callback enumerates 3', r.count === 3, 'got ' + r.count);
-check('method reported as callback', r.method === 'callback', 'got ' + r.method);
-
-console.log('\n4. lparamMode "zero" reproduces the crash, and is survived by falling back');
-r = uia.enumerateWindows({ method: 'callback', lparamMode: 'zero' });
-check('crash caught, fell back to walk', r.method === 'walk', 'got ' + r.method);
-check('still found all 3 windows', r.count === 3, 'got ' + r.count);
-
-console.log('\n5. callback return value NOT honored -> fallback to walk');
-CALLBACK_STOPS_AFTER = 1; // EnumWindows stops after the first window
-r = uia.enumerateWindows({ method: 'callback' });
-check('fell back to walk', r.method === 'walk', 'got ' + r.method);
-check('still found all 3 windows', r.count === 3, 'got ' + r.count);
-
-console.log('\n6. filters off');
-CALLBACK_STOPS_AFTER = null;
+console.log('\n3. filters off');
 r = uia.enumerateWindows({ visibleOnly: false, titledOnly: false });
 check('all 5 windows returned', r.count === 5, 'got ' + r.count);
 
-console.log('\n7. find / activate / foreground');
+console.log('\n4. find / activate / foreground');
 check('find is case-insensitive substring', uia.findWindow('notepad').length === 1);
 check('find miss returns empty', uia.findWindow('nonexistent').length === 0);
 const act = uia.activateWindow(200);
 check('activate reports foreground', act.result === true && act.foreground === 200, JSON.stringify(act));
 check('foreground window described', uia.getForegroundWindow().title === 'Calculator');
 
-console.log('\n8. selfTest defaults to walk only, callback is opt-in');
-LAST_ENUM_LPARAM = 'unset';
-const stDefault = uia.selfTest();
-check('walk ran', stDefault.walk.ok === true);
-check('callback not attempted by default', stDefault.callback.attempted === false);
-check('EnumWindows never called', LAST_ENUM_LPARAM === 'unset');
-check('sample populated', stDefault.sample.length === 3, 'got ' + stDefault.sample.length);
+console.log('\n5. selfTest report');
+const st = uia.selfTest();
+check('walk ran', st.walk.ok === true);
+check('walk counted all windows', st.walk.count === 5, 'got ' + st.walk.count);
+check('sample populated', st.sample.length === 3, 'got ' + st.sample.length);
+check('no callback field reported', st.callback === undefined);
 
-const st = uia.selfTest(undefined, true);
-check('callback attempted when asked', st.callback.attempted === true);
-check('both paths ok', st.callback.ok && st.walk.ok);
-check('paths agree', st.agree === true);
-check('callback return value flagged honored', st.callbackReturnValueHonored === true);
-CALLBACK_STOPS_AFTER = 1;
-const st2 = uia.selfTest(undefined, true);
-check('degraded callback detected', st2.callbackReturnValueHonored === false && st2.agree === false);
-CALLBACK_STOPS_AFTER = null;
-
-console.log('\n9. cycle guard in walk');
+console.log('\n6. cycle guard in walk');
 const savedGetWindow = impl.GetWindow;
 impl.GetWindow = () => ({ Val: ORDER[0] }); // always points back to the first window
 r = uia.enumerateWindows({ method: 'walk' });

@@ -250,12 +250,25 @@ Cheaper-than-pixels tools (tool descriptions should say to prefer these):
 
 ## Related work already on the branch
 
-The `win-uiautomation.js` spike (`agents/modules_meshcore/win-uiautomation.js`, merged in PR #1)
-proves the `_GenericMarshal` path for enumerating and activating Windows top-level windows from
-agent JS, exposed via the `uiwindows` console command. Its `selfTest()` still needs to be run on
-a real Windows agent to settle whether `CreateCallbackProxy` propagates the JS return value to
-`EnumWindows`; a sibling-walk fallback is in place either way. If it holds up, `list_windows`
-should call this module directly instead of shelling out.
+The `win-uiautomation.js` spike (`agents/modules_meshcore/win-uiautomation.js`) is **done and
+answered on real Windows hardware**. Driving the Win32 windowing API from agent JavaScript
+through `_GenericMarshal` works: `GetTopWindow` + `GetWindow(GW_HWNDNEXT)` enumerated 132
+top-level windows, with titles, class names, PIDs and rectangles read correctly via
+`GetWindowTextW` / `GetClassNameW` / `GetWindowRect`, dispatched into the interactive session
+(`sessionId: 1`) from the SYSTEM agent in session 0.
+
+`EnumWindows` with a `CreateCallbackProxy` WNDENUMPROC was tried and rejected on two measured
+grounds: passing lParam 0 killed the process with a native fault (the thunk locates the JS
+function through that context value, so it must receive `.State`), and even with `.State` passed
+correctly the callback visited exactly one window and stopped, because the JS return value never
+reaches native code and `EnumWindows` reads a non-TRUE return as "stop". The callback path is
+removed from the module.
+
+So `list_windows` should call this module directly rather than shelling out to PowerShell or
+AutoHotkey — no endpoint prerequisites, and it is already proven. The same `_GenericMarshal`
+idiom extends to `SetForegroundWindow`, `SendMessageW` and the rest of the Win32 surface, with
+one constraint recorded: **anything requiring a native callback is off the table** on this agent
+runtime, so prefer enumeration APIs that return values over ones that call you back.
 
 ## Verification
 

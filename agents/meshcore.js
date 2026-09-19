@@ -4773,25 +4773,20 @@ function processConsoleCommand(cmd, args, rights, sessionid) {
             case 'uiwindows': {
                 // SPIKE: prove that top-level window enumeration works from agent JS via _GenericMarshal.
                 // Usage: uiwindows [selftest|list|find <text>|activate <handle>|foreground] [--session <tsid>]
-                // Defaults to the safe sibling-walk enumeration; see win-uiautomation.js for why.
+                // Enumerates via the sibling walk; see win-uiautomation.js for why not EnumWindows.
                 try { require('win-uiautomation'); } catch (ex) { response = 'Unknown command "uiwindows", type "help" for list of available commands.'; break; }
                 var uia = require('win-uiautomation');
                 var sub = (args['_'].length > 0) ? args['_'][0] : 'selftest';
                 // The agent runs in session 0, which has no view of the interactive desktop, so
                 // dispatch into a user session unless the caller explicitly asks for --local.
                 var tsid = (args.local != null) ? undefined : ((args.session != null) ? parseInt(args.session) : null);
-                // The callback path can kill the helper process rather than throw, so it is
-                // never used unless asked for by name.
-                var uiaOpts = {};
-                if (args.method != null) { uiaOpts.method = args.method; }
-                if (args.lparam != null) { uiaOpts.lparamMode = args.lparam; }
                 try {
                     switch (sub) {
                         case 'selftest':
-                            response = JSON.stringify(uia.selfTest(tsid, (args.callback != null)), null, 2);
+                            response = JSON.stringify(uia.selfTest(tsid), null, 2);
                             break;
                         case 'list':
-                            response = JSON.stringify(uia.enumerateWindows(uiaOpts, tsid), null, 2);
+                            response = JSON.stringify(uia.enumerateWindows({}, tsid), null, 2);
                             break;
                         case 'find':
                             if (args['_'].length != 2) { response = 'Proper usage: uiwindows find [text]'; break; }
@@ -4806,10 +4801,7 @@ function processConsoleCommand(cmd, args, rights, sessionid) {
                             break;
                         default:
                             response = 'Proper usage: uiwindows [selftest|list|find (text)|activate (handle)|foreground]\r\n' +
-                                '  [--session (tsid)] [--local]         run in a given session, or stay in session 0\r\n' +
-                                '  [--callback]                         selftest also tries the EnumWindows callback path\r\n' +
-                                '  [--method walk|callback]             list using a specific enumeration path\r\n' +
-                                '  [--lparam state|zero]                callback lParam; "zero" reproduces the native crash';
+                                '  [--session (tsid)] [--local]   run in a given session, or stay in session 0';
                             break;
                     }
                 } catch (ex) { response = 'uiwindows failed: ' + ex; }
