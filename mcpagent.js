@@ -38,7 +38,9 @@ const RUNCMD_POSIX_SHELL = 3;
 module.exports.CreateMcpAgent = function (parent, mcp) {
     var obj = {};
     const config = ((parent.parent.config.settings != null) && (typeof parent.parent.config.settings.mcp == 'object')) ? parent.parent.config.settings.mcp : {};
-    const scriptTimeout = ((typeof config.scriptTimeout == 'number') ? config.scriptTimeout : 30) * 1000;
+    // See mcpConfigValue: config keys arrive lowercased, so "scriptTimeout" is "scripttimeout".
+    const scriptTimeoutValue = require('./mcpserver.js').mcpConfigValue(config, 'scriptTimeout');
+    const scriptTimeout = ((typeof scriptTimeoutValue == 'number') ? scriptTimeoutValue : 30) * 1000;
 
     // Console output arrives as a series of messages with no end marker, so collect until
     // the agent has been quiet for this long, bounded by the overall timeout.

@@ -56,6 +56,17 @@ const JSONRPC_METHOD_NOT_FOUND = -32601;
 const JSONRPC_INVALID_PARAMS = -32602;
 const JSONRPC_INTERNAL_ERROR = -32603;
 
+// MeshCentral lowercases every config key on load, including nested ones
+// (common.js objKeysToLower recurses and "mcp" is not an exception), so a setting written
+// as "allowInput" in config.json arrives here as "allowinput". Read both spellings so the
+// documented camelCase names work and a programmatically built config still does too.
+function mcpConfigValue(config, name) {
+    if (config == null) { return undefined; }
+    if (config[name.toLowerCase()] !== undefined) { return config[name.toLowerCase()]; }
+    return config[name];
+}
+module.exports.mcpConfigValue = mcpConfigValue;
+
 module.exports.CreateMcpServer = function (parent) {
     var obj = {};
     obj.parent = parent;                    // The web server
@@ -63,10 +74,12 @@ module.exports.CreateMcpServer = function (parent) {
     obj.sessionCount = 0;
 
     const config = ((parent.parent.config.settings != null) && (typeof parent.parent.config.settings.mcp == 'object')) ? parent.parent.config.settings.mcp : {};
-    obj.allowInput = (config.allowInput === true);
-    obj.allowShell = (config.allowShell === true);
-    const sessionIdleTimeout = (typeof config.sessionIdleTimeout == 'number') ? (config.sessionIdleTimeout * 1000) : 600000;
-    const maxSessionsPerUser = (typeof config.maxSessionsPerUser == 'number') ? config.maxSessionsPerUser : 8;
+    obj.allowInput = (mcpConfigValue(config, 'allowInput') === true);
+    obj.allowShell = (mcpConfigValue(config, 'allowShell') === true);
+    const sessionIdleTimeoutValue = mcpConfigValue(config, 'sessionIdleTimeout');
+    const maxSessionsPerUserValue = mcpConfigValue(config, 'maxSessionsPerUser');
+    const sessionIdleTimeout = (typeof sessionIdleTimeoutValue == 'number') ? (sessionIdleTimeoutValue * 1000) : 600000;
+    const maxSessionsPerUser = (typeof maxSessionsPerUserValue == 'number') ? maxSessionsPerUserValue : 8;
 
     // Drop sessions that have gone quiet. A session holds only a userid, so this is
     // bookkeeping rather than resource release, but it keeps the table bounded.

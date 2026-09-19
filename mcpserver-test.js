@@ -509,6 +509,27 @@ run([
                 });
             });
         });
+    },
+    function (next) {
+        console.log('\n27. config keys arrive lowercased from MeshCentral');
+        // common.js objKeysToLower recurses into settings.mcp, so config.json's
+        // "allowInput" reaches the server as "allowinput". Reading only camelCase would
+        // silently leave every flag off and every timeout at its default.
+        const lowered = require('./common.js').objKeysToLower({
+            settings: { mcp: { enabled: true, allowInput: true, allowShell: true, scriptTimeout: 5, maxSessionsPerUser: 3 } }
+        }, ['ldapoptions', 'defaultuserwebstate', 'forceduserwebstate', 'httpheaders', 'telegram/proxy']);
+        check('the key really is lowercased', lowered.settings.mcp.allowinput === true && lowered.settings.mcp.allowInput === undefined);
+
+        const p = makeParent({ enabled: true });
+        p.parent.config = lowered;
+        const sv = require('./mcpserver.js').CreateMcpServer(p);
+        check('allowInput honoured when lowercased', sv.allowInput === true);
+        check('allowShell honoured when lowercased', sv.allowShell === true);
+        post(sv, rpc('tools/list', {}), {}, function (res, body) {
+            const names = body.result.tools.map(function (t) { return t.name; });
+            check('gated tools appear once enabled', names.indexOf('run_script') >= 0 && names.indexOf('agent_console') >= 0, names.join(','));
+            next();
+        });
     }
 ], function () {
     console.log('\n' + checks + ' checks, ' + (failures === 0 ? 'ALL PASSED' : failures + ' FAILED'));
