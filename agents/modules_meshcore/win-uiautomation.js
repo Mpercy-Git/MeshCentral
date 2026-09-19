@@ -23,20 +23,27 @@ limitations under the License.
 //
 // Two independent enumeration paths are implemented on purpose:
 //
-//   'callback' - EnumWindows() with a WNDENUMPROC built by Marshal.CreateCallbackProxy().
-//                This is the idiomatic Win32 way and the thing actually being proven.
-//                The open question is whether the JS return value of a callback proxy is
-//                propagated back to native code. EnumWindows treats a FALSE return as
-//                "stop enumerating", so if the proxy always yields 0 to the caller this
-//                path returns only the first window. The only prior use of
-//                CreateCallbackProxy in this codebase (modules_meshcore/wifi-scanner-windows.js:130)
-//                is a void callback, so it does not settle the question.
-//
 //   'walk'     - GetTopWindow(NULL) followed by GetWindow(hwnd, GW_HWNDNEXT). Uses only
-//                scalar returns, no callback ABI involved, so it is the safe fallback.
+//                scalar returns, no callback ABI involved. This is the default.
 //
-// selfTest() runs both and reports whether they agree. That is the deliverable of the
-// spike: run it on a real agent and the answer is in the output.
+//   'callback' - EnumWindows() with a WNDENUMPROC built by Marshal.CreateCallbackProxy().
+//                The idiomatic Win32 way, and opt-in only, for the reason below.
+//
+// Finding from a real agent (2026-09-19): calling EnumWindows with lParam 0 killed the
+// process outright with a native "FATAL EXCEPTION @ ILibParsers.c:2786", rather than
+// raising a catchable JS error. The cause is that _GenericMarshal's thunk locates the JS
+// function through the context value the API passes back, which is why
+// wifi-scanner-windows.js:133 hands .Callback and .State to WlanRegisterNotification's
+// callback and context parameters together. EnumWindows' lParam is that same context
+// slot, so it must receive .State. That is now what this module does.
+//
+// Because a mistake on that path is a process-killing fault rather than an error, the
+// walk is the default and the callback runs only when asked for by name. A second open
+// question remains for the callback path: whether the JS return value reaches native
+// code at all. EnumWindows reads a FALSE return as "stop", so a proxy that always yields
+// 0 returns just the first window - hence the fallback when it produces fewer than two.
+//
+// selfTest() always runs the walk, and attempts the callback only when asked.
 //
 // Session note: the agent normally runs as LocalSystem in session 0, which has its own
 // window station and therefore cannot see the interactive user's windows. Every exported
@@ -122,15 +129,25 @@ function enumWindowsProc(hwnd, lparam)
 }
 
 //
-// Enumeration path 1: EnumWindows + callback proxy. The thing being proven.
+// Enumeration path 1: EnumWindows + callback proxy.
 //
-function enumViaCallback()
+// The lParam must be the proxy's State pointer, not 0. _GenericMarshal's native thunk
+// uses the context value the API hands back to locate the JS function, which is why
+// wifi-scanner-windows.js:133 passes .Callback and .State together into
+// WlanRegisterNotification's callback and context parameters. EnumWindows' lParam is
+// that same context slot. Passing 0 made the thunk dereference a null context and
+// killed the process with a native FATAL EXCEPTION in ILibParsers.c, observed on a
+// real agent. Because that is a hard crash rather than a catchable error, this path is
+// never taken unless the caller asks for it by name.
+//
+function enumViaCallback(lparamMode)
 {
     _enumAccum = [];
     _enumProxy = GM.CreateCallbackProxy(enumWindowsProc, 2);
     try
     {
-        user32.EnumWindows(_enumProxy.Callback, 0);
+        // 'zero' reproduces the original crash on purpose; only useful for confirming it.
+        user32.EnumWindows(_enumProxy.Callback, (lparamMode == 'zero') ? 0 : _enumProxy.State);
     }
     finally
     {
@@ -192,33 +209,37 @@ function describe(hwnd)
 }
 
 //
-// options: { method: 'auto' | 'callback' | 'walk', visibleOnly: bool, titledOnly: bool }
+// options: { method: 'walk' | 'callback', lparamMode: 'state' | 'zero',
+//            visibleOnly: bool, titledOnly: bool }
+//
+// The default is deliberately 'walk'. The callback path can take the whole process down
+// rather than raising a catchable error, so it is opt-in only.
 //
 function enumerateLocal(options)
 {
     if (options == null) { options = {}; }
-    var method = (options.method == null) ? 'auto' : options.method;
+    var method = (options.method == null) ? 'walk' : options.method;
     var visibleOnly = (options.visibleOnly !== false);
     var titledOnly = (options.titledOnly !== false);
 
     var handles = [];
     var used = method;
-    if (method == 'walk')
+    if (method == 'callback')
     {
-        handles = enumViaWalk();
-    }
-    else
-    {
-        try { handles = enumViaCallback(); } catch (e) { handles = []; }
-        // A callback path that yields 0 or 1 windows is the failure signature described in
-        // the header: fall back rather than silently reporting an almost-empty desktop.
-        if ((method == 'auto') && (handles.length < 2))
+        try { handles = enumViaCallback(options.lparamMode); } catch (e) { handles = []; }
+        // A callback that yields fewer than two windows means the return value was not
+        // propagated, so enumeration stopped early. Fall back rather than silently
+        // reporting an almost-empty desktop.
+        if (handles.length < 2)
         {
             var walked = enumViaWalk();
             if (walked.length > handles.length) { handles = walked; used = 'walk'; }
-            else { used = 'callback'; }
         }
-        else { used = 'callback'; }
+    }
+    else
+    {
+        handles = enumViaWalk();
+        used = 'walk';
     }
 
     var out = [];
@@ -265,30 +286,35 @@ function foregroundLocal()
 // Runs both enumeration paths and reports whether they agree. This is what proves or
 // disproves the callback path on a given machine.
 //
-function selfTestLocal()
+// The walk always runs. The callback is attempted only when includeCallback is set,
+// because a bad call there is a process-killing native fault, not an exception.
+function selfTestLocal(includeCallback)
 {
     var res = {
         platform: process.platform,
         pointerSize: GM.PointerSize,
         isRoot: null,
         sessionId: null,
-        callback: { ok: false, count: 0, error: null },
-        walk: { ok: false, count: 0, error: null }
+        walk: { ok: false, count: 0, error: null },
+        callback: { attempted: false, ok: false, count: 0, error: null }
     };
 
     try { res.isRoot = require('user-sessions').isRoot(); } catch (e) { }
     try { res.sessionId = require('user-sessions').getProcessOwnerName(process.pid).tsid; } catch (e) { }
 
-    var cb = [];
-    try { cb = enumViaCallback(); res.callback.ok = true; res.callback.count = cb.length; }
-    catch (e) { res.callback.error = '' + e; }
-
     var wk = [];
     try { wk = enumViaWalk(); res.walk.ok = true; res.walk.count = wk.length; }
     catch (e) { res.walk.error = '' + e; }
 
-    res.agree = (res.callback.ok && res.walk.ok && (Math.abs(cb.length - wk.length) <= 2));
-    res.callbackReturnValueHonored = (res.callback.ok && (cb.length > 1));
+    var cb = [];
+    if (includeCallback)
+    {
+        res.callback.attempted = true;
+        try { cb = enumViaCallback(); res.callback.ok = true; res.callback.count = cb.length; }
+        catch (e) { res.callback.error = '' + e; }
+        res.agree = (res.callback.ok && res.walk.ok && (Math.abs(cb.length - wk.length) <= 2));
+        res.callbackReturnValueHonored = (res.callback.ok && (cb.length > 1));
+    }
 
     // A small sample of real windows, so the output shows this reached actual UI state.
     res.sample = [];
@@ -385,10 +411,10 @@ function getForegroundWindow(tsid)
     return foregroundLocal();
 }
 
-function selfTest(tsid)
+function selfTest(tsid, includeCallback)
 {
-    if (tsid !== undefined) { return JSON.parse(sessionDispatch(tsid, 'json', 'selfTest', [])); }
-    return selfTestLocal();
+    if (tsid !== undefined) { return JSON.parse(sessionDispatch(tsid, 'json', 'selfTest', [includeCallback === true])); }
+    return selfTestLocal(includeCallback === true);
 }
 
 // String-returning variants, used by sessionDispatch because the child relays over stdout.
@@ -405,5 +431,5 @@ module.exports.json = {
     find: function (t) { return JSON.stringify(findLocal(t)); },
     activate: function (h) { return JSON.stringify(activateLocal(h)); },
     foreground: function () { return JSON.stringify(foregroundLocal()); },
-    selfTest: function () { return JSON.stringify(selfTestLocal()); }
+    selfTest: function (includeCallback) { return JSON.stringify(selfTestLocal(includeCallback === true)); }
 };
