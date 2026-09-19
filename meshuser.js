@@ -595,6 +595,12 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
             if (typeof domain.devicemeshrouterlinks == 'object') { serverinfo.devicemeshrouterlinks = domain.devicemeshrouterlinks; }
             if ((typeof domain.altmessenging == 'object') && (typeof domain.altmessenging.name == 'string') && (typeof domain.altmessenging.url == 'string')) { serverinfo.altmessenging = [{ name: domain.altmessenging.name, url: domain.altmessenging.url, localurl: domain.altmessenging.localurl, type: domain.altmessenging.type }]; }
             if (Array.isArray(domain.altmessenging)) { serverinfo.altmessenging = []; for (var i in domain.altmessenging) { if ((typeof domain.altmessenging[i] == 'object') && (typeof domain.altmessenging[i].name == 'string') && (typeof domain.altmessenging[i].url == 'string')) { serverinfo.altmessenging.push({ name: domain.altmessenging[i].name, url: domain.altmessenging[i].url, type: domain.altmessenging[i].type }); } } }
+            // Tell the UI whether the MCP endpoint is being served, so it can offer
+            // connection details after a login token is created. Only the flags a client
+            // needs to connect are exposed, never the rest of the MCP configuration.
+            if (parent.mcpServerHandler != null) {
+                serverinfo.mcp = { enabled: true, allowInput: parent.mcpServerHandler.allowInput, allowShell: parent.mcpServerHandler.allowShell };
+            }
             serverinfo.https = true;
             serverinfo.redirport = args.redirport;
             if (parent.parent.webpush != null) { serverinfo.vapidpublickey = parent.parent.webpush.vapidPublicKey; } // Web push public key

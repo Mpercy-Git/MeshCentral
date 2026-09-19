@@ -750,6 +750,7 @@
                                 <a href=# onclick="return account_showDeleteAccount()">Delete account</a><br />
                             </span>
                             <span id="accountCreateLoginTokenSpan" style="display:none"><a href=# onclick="return account_createLoginToken()">Create login token</a><br /></span>
+                            <span id="accountMcpSpan" style="display:none"></span>
                             <a href=# onclick="return account_showThemesSwitcher()">Switch theme</a><br />
                             <span id="accountCustomIconsSpan" style="display:none"><a href=# onclick="return showIconCustomization()">Icons Customization</a><br /></span>
                         </p>
@@ -3556,6 +3557,7 @@
                 }
                 case 'serverinfo': {
                     serverinfo = message.serverinfo;
+                    updateMcpAccountInfo();
                     if (serverinfo.timeout) { setInterval(checkIdleSessionTimeout, 10000); checkIdleSessionTimeout(); }
                     if (debugmode == 1) { console.log('Server time: ', printDateTime(new Date(serverinfo.serverTime))); }
                     setupServiceWorker();
@@ -5118,6 +5120,7 @@
                     if (message.expire != 0) { x += addHtmlValue("Expire", EscapeHtml(printDateTime(new Date(message.expire)))); }
                     x += addHtmlValue("Username", '<i class="fa-regular fa-copy" title="' + "Copy link to clipboard" + '" style="margin:9px;cursor:pointer;float:right" onclick=copyTextToClip2("' + encodeURIComponentEx(message.tokenUser) + '")></i><div class=selecttext style=width:230px;padding:5px;border-radius:5px;font-size:15px>' + EscapeHtml(message.tokenUser) + '</div>');
                     x += addHtmlValue("Password", '<i class="fa-regular fa-copy" title="' + "Copy link to clipboard" + '" style="margin:9px;cursor:pointer;float:right" onclick=copyTextToClip2("' + encodeURIComponentEx(message.tokenPass) + '")></i><div class=selecttext style=width:230px;padding:5px;border-radius:5px;font-size:15px>' + EscapeHtml(message.tokenPass) + '</div>');
+                    x += mcpConnectionHtml(message.tokenUser, message.tokenPass);
                     setModalContent('xxAddAgent', "Login Token Created", x);
                     QV('idx_dlgOkButton', false);
                     Q('idx_dlgCancelButton').innerHTML = "Close";
@@ -24424,6 +24427,32 @@
         function u2fSupported() { return (window.u2f && ((navigator.userAgent.indexOf('Chrome/') > 0) || (navigator.userAgent.indexOf('Firefox/') > 0) || (navigator.userAgent.indexOf('Opera/') > 0) || (navigator.userAgent.indexOf('Safari/') > 0))); }
         function findOne(arr1, arr2) { if ((arr1 == null) || (arr2 == null)) return false; return arr2.some(function (v) { return arr1.indexOf(v) >= 0; }); };
         function copyTextToClip(txt) { function selectElementText(e) { if (document.selection) { var range = document.body.createTextRange(); range.moveToElementText(e); range.select(); } else if (window.getSelection) { var range = document.createRange(); range.selectNode(e); window.getSelection().removeAllRanges(); window.getSelection().addRange(range); } } var e = document.createElement('DIV'); e.textContent = txt; document.body.appendChild(e); selectElementText(e); document.execCommand('copy'); e.remove(); }
+
+        // Builds the MCP connection block shown after a login token is created. The token
+        // username is "~t:" + base64, so it contains a colon; hand-building the HTTP Basic
+        // header from it is easy to get wrong and fails as a bare 401, which is why the
+        // encoded header is offered ready to paste rather than left as an exercise.
+        function mcpConnectionHtml(tokenUser, tokenPass) {
+            if ((serverinfo == null) || (serverinfo.mcp == null) || (serverinfo.mcp.enabled != true)) { return ''; }
+            var endpoint = window.location.origin + domainUrl + 'mcp.ashx';
+            var header = 'Authorization: Basic ' + btoa(tokenUser + ':' + tokenPass);
+            var cli = 'claude mcp add --transport http meshcentral ' + endpoint + ' --header "' + header + '"';
+            var caps = serverinfo.mcp.allowShell ? "Commands and screen capture are enabled." : (serverinfo.mcp.allowInput ? "Screen capture and input are enabled." : "Screen capture only; running commands is disabled on this server.");
+            var x = '<br /><strong>' + "AI agent access (MCP)" + '</strong><br />' + EscapeHtml(caps) + '<br /><br />';
+            x += addHtmlValue("Endpoint", '<i class="fa-regular fa-copy" title="' + "Copy to clipboard" + '" style="margin:9px;cursor:pointer;float:right" onclick=copyTextToClip2("' + encodeURIComponentEx(endpoint) + '")></i><div class=selecttext style=width:230px;padding:5px;border-radius:5px;word-break:break-all>' + EscapeHtml(endpoint) + '</div>');
+            x += addHtmlValue("Add to Claude Code", '<i class="fa-regular fa-copy" title="' + "Copy to clipboard" + '" style="margin:9px;cursor:pointer;float:right" onclick=copyTextToClip2("' + encodeURIComponentEx(cli) + '")></i><div class=selecttext style=width:230px;padding:5px;border-radius:5px;word-break:break-all;font-size:11px>' + EscapeHtml(cli) + '</div>');
+            return x;
+        }
+
+        // Shows the MCP endpoint on the account page when the server is serving it, so a
+        // user can find it without reading the server config.
+        function updateMcpAccountInfo() {
+            if ((serverinfo == null) || (serverinfo.mcp == null) || (serverinfo.mcp.enabled != true)) { QV('accountMcpSpan', false); return; }
+            var endpoint = window.location.origin + domainUrl + 'mcp.ashx';
+            QH('accountMcpSpan', "AI agent endpoint (MCP)" + ': <span class=selecttext style=word-break:break-all>' + EscapeHtml(endpoint) + '</span><br />' + "Create a login token above to connect a client." + '<br />');
+            QV('accountMcpSpan', true);
+        }
+
         function copyTextToClip2(txt) { function selectElementText(e) { if (document.selection) { var range = document.body.createTextRange(); range.moveToElementText(e); range.select(); } else if (window.getSelection) { var range = document.createRange(); range.selectNode(e); window.getSelection().removeAllRanges(); window.getSelection().addRange(range); } } var e = document.createElement('DIV'); e.textContent = decodeURIComponent(txt); document.body.appendChild(e); selectElementText(e); document.execCommand('copy'); e.remove(); }
         function capitalizeFirstLetter(x) { return EscapeHtml(x.charAt(0).toUpperCase() + x.slice(1)); }
         function printDate(d) { return EscapeHtml(d.toLocaleDateString(args.locale)); }
