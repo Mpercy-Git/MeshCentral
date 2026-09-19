@@ -237,16 +237,31 @@ Cheaper-than-pixels tools (tool descriptions should say to prefer these):
 
 ## Phases
 
-1. Config plumbing, module install, `/mcp.ashx` transport + login-token auth, `list_devices`,
-   `get_screen_info`. Verify with MCP Inspector.
-2. Non-pixel tools (`mcpagent.js`): `run_script` (with unique `responseid`), `agent_console`,
-   `list_processes`, `get_sysinfo`, clipboard, `open_url`. Cheap to build, no image pipeline,
-   and what most workflows should use — land before the compositor.
+1. **Done.** Config plumbing, `/mcp.ashx` transport, login-token auth, `list_devices`,
+   `get_screen_info`. See `mcpserver.js`.
+2. **Done.** Non-pixel tools in `mcpagent.js`: `run_script`, `agent_console`,
+   `list_processes`, `get_sysinfo`, `list_windows`, `get_clipboard`, `set_clipboard`,
+   `open_url`.
 3. `getScreenTiles()`, cold-path attach, JPEG compositor, `capture_screen`,
    `wait_for_screen_change`.
-4. Input tools behind `allowInput` (including the Right Shift case), `set_display`,
-   `list_windows`.
-5. Rate limits, audit events, docs, sample config.
+4. Input tools behind `allowInput` (including the Right Shift case) and `set_display`.
+5. Rate limits, docs, and a first run inside a live server.
+
+### Corrections the implementation forced on this plan
+
+- Login token usernames are `'~t:' + base64`, so they contain a colon and cannot be split
+  as an HTTP Basic userinfo field on the first colon. The separator is the first colon
+  after the prefix; `Bearer` is also accepted.
+- There is no `MESHRIGHT_REMOTEVIEW`. `0x100` is `REMOTEVIEWONLY`, a restriction. Desktop
+  access is `REMOTECONTROL` without `NODESKTOP`. Full rights (`0xFFFFFFFF`) contains every
+  restriction bit, so those bits must not be tested for an administrator.
+- Agent replies are routed by `webserver.routeAgentCommand()` through
+  `webserver.wssessions2[sessionid]`, so each call registers a short-lived pseudo-session
+  there. Carrying a per-call `sessionid` is what actually prevents the #8080 cross-talk; a
+  unique `responseid` alone does not, because a reply with no `sessionid` is broadcast to
+  every control session under the same login.
+- `authenticate()` already understands login tokens, so no token verification is
+  reimplemented.
 
 ## Related work already on the branch
 

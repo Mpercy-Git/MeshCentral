@@ -107,6 +107,11 @@ module.exports.CreateMcpServer = function (parent) {
         }
     };
 
+    // Tools that reach the device without pixels. Loaded after the registry so its
+    // handlers can call back into getNodeWithRights above.
+    const agentTools = require('./mcpagent.js').CreateMcpAgent(parent, obj).tools;
+    for (var toolName in agentTools) { tools[toolName] = agentTools[toolName]; }
+
     // Complete a possibly short device id into a full "node/domain/id" identifier.
     function fullNodeId(nodeid, domain) {
         if (typeof nodeid != 'string') { return null; }
@@ -116,6 +121,7 @@ module.exports.CreateMcpServer = function (parent) {
 
     // Resolve a device and the calling user's rights on it, refusing anything the user
     // cannot see. Every tool that names a device goes through here.
+    obj.getNodeWithRights = function (ctx, nodeid, func) { getNodeWithRights(ctx, nodeid, func); };
     function getNodeWithRights(ctx, nodeid, func) {
         const id = fullNodeId(nodeid, ctx.domain);
         if (id == null) { func('Invalid device id'); return; }
@@ -349,9 +355,19 @@ module.exports.CreateMcpServer = function (parent) {
             var session = ((typeof sessionId == 'string') && (obj.sessions[sessionId] != null)) ? obj.sessions[sessionId] : null;
             if ((session != null) && (session.userid != user._id)) { session = null; } // Never hand a session to a different account
             if (session == null) {
-                var userSessions = 0;
-                for (var i in obj.sessions) { if (obj.sessions[i].userid == user._id) { userSessions++; } }
-                if (userSessions >= maxSessionsPerUser) { res.status(429).send(JSON.stringify(rpcError(null, JSONRPC_INVALID_REQUEST, 'Too many MCP sessions for this account'))); return; }
+                // Cap sessions per account, but evict the least recently used rather than
+                // refusing: a client that does not echo Mcp-Session-Id opens a session per
+                // request, and locking it out until the idle timeout would be worse than
+                // dropping state it is not using anyway.
+                var userSessions = [];
+                for (var i in obj.sessions) { if (obj.sessions[i].userid == user._id) { userSessions.push(obj.sessions[i]); } }
+                while (userSessions.length >= maxSessionsPerUser) {
+                    var oldest = userSessions[0];
+                    for (var j = 1; j < userSessions.length; j++) { if (userSessions[j].lastSeen < oldest.lastSeen) { oldest = userSessions[j]; } }
+                    delete obj.sessions[oldest.id];
+                    obj.sessionCount--;
+                    userSessions.splice(userSessions.indexOf(oldest), 1);
+                }
                 sessionId = parent.parent.crypto.randomBytes(16).toString('hex');
                 session = { id: sessionId, userid: user._id, domain: domain, created: Date.now(), initialized: false };
                 obj.sessions[sessionId] = session;
