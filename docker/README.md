@@ -10,22 +10,22 @@ This document provides a comprehensive guide to setting up and configuring MeshC
 It includes available options, security measures, and deployment instructions.
 
 MeshCentral provides a couple different Docker container variants:<br>
-These variants are pulled through 3 main channels: `master` and `latest`.<br>
+This fork publishes images only to GitHub Container Registry (GHCR). `master` and `latest` follow the fork’s default branch; release tags identify published versions. Append `-debian` to a variant tag for the Debian image (for example, `latest-slim-debian`).<br>
 If you want to target versions, you can also target individual versions; such as `1.1.53`.
 
 | Variant | Image tag | Full path |
 |---------|-----------|-----------|
-| All database backends | "" (empty) | ghcr.io/ylianst/meshcentral:\<version\> |
-| No database backens (local only) | slim | ghcr.io/ylianst/meshcentral:\<version\>-slim |
-| [MongoDB](https://www.mongodb.com/) backend included | mongodb | ghcr.io/ylianst/meshcentral:\<version\>-mongodb |
-| [PostgreSQL](https://www.postgresql.org/) backend included | postgresql | ghcr.io/ylianst/meshcentral:\<version\>-postgresql |
-| [Mysql](https://www.mysql.com/)/[MariaDB](https://mariadb.org/) backend(s) included | mysql | ghcr.io/ylianst/meshcentral:\<version\>-mysql |
+| All database backends | "" (empty) | ghcr.io/mpercy-git/meshcentral:\<version\> |
+| No database backens (local only) | slim | ghcr.io/mpercy-git/meshcentral:\<version\>-slim |
+| [MongoDB](https://www.mongodb.com/) backend included | mongodb | ghcr.io/mpercy-git/meshcentral:\<version\>-mongodb |
+| [PostgreSQL](https://www.postgresql.org/) backend included | postgresql | ghcr.io/mpercy-git/meshcentral:\<version\>-postgresql |
+| [Mysql](https://www.mysql.com/)/[MariaDB](https://mariadb.org/) backend(s) included | mariadb | ghcr.io/mpercy-git/meshcentral:\<version\>-mariadb |
 
-So for a quick example: if you want to get the bleeding edge code with a PostgreSQL backend: `ghcr.io/ylianst/meshcentral:master-postgresql`<br>
-So for another quick example: if you want to get a complete image at the latest released version: `ghcr.io/ylianst/meshcentral:latest`<br>
-So for another quick example: if you want to get a released version with a MongoDB backend: `ghcr.io/ylianst/meshcentral:latest-mongodb`<br>
-So for another quick example: if you want a very slim image with the latest code and only a local database: `ghcr.io/ylianst/meshcentral:master-slim`<br>
-So as a last example: if you want to get a MariaDB/MySQL backend with MeshCentral version 1.1.53: `ghcr.io/ylianst/meshcentral:1.1.53-mysql`
+So for a quick example: if you want to get the bleeding edge code with a PostgreSQL backend: `ghcr.io/mpercy-git/meshcentral:master-postgresql`<br>
+So for another quick example: if you want to get a complete image at the latest default-branch build: `ghcr.io/mpercy-git/meshcentral:latest`<br>
+So for another quick example: if you want to get the latest build with a MongoDB backend: `ghcr.io/mpercy-git/meshcentral:latest-mongodb`<br>
+So for another quick example: if you want a very slim image with the latest code and only a local database: `ghcr.io/mpercy-git/meshcentral:master-slim`<br>
+So as a last example: if you want to get a MariaDB/MySQL backend with MeshCentral version 1.1.53: `ghcr.io/mpercy-git/meshcentral:1.1.53-mariadb`
 
 ## Persistency
 
@@ -111,14 +111,14 @@ docker run -d \
   -e MONGO_URL=mongodb://username:password@mongodb:27017/meshcentral \
   -v meshcentral-data:/opt/meshcentral/meshcentral-data \
   -p 443:443 \
-  ghcr.io/ylianst/meshcentral:latest # or latest-mongodb
+  ghcr.io/mpercy-git/meshcentral:latest # or latest-mongodb
 ```
 
 ### Running with Docker Compose
 ```yaml
 services:
   meshcentral:
-    image: ghcr.io/ylianst/meshcentral:latest
+    image: ghcr.io/mpercy-git/meshcentral:latest
     environment:
       - HOSTNAME=myserver.domain.com
       - ALLOW_NEW_ACCOUNTS=false
@@ -207,7 +207,7 @@ Add the following lines to your compose.yaml:
 ```yaml
 services:
   meshcentral:
-    image: ghcr.io/ylianst/meshcentral:latest
+    image: ghcr.io/mpercy-git/meshcentral:latest
     ...
     <the rest of the compose.yaml>
     ...

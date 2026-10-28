@@ -287,8 +287,16 @@ function selfTestLocal()
     try { wk = enumViaWalk(); res.walk.ok = true; res.walk.count = wk.length; }
     catch (e) { res.walk.error = '' + e; }
 
-    res.agree = (res.callback.ok && res.walk.ok && (Math.abs(cb.length - wk.length) <= 2));
-    res.callbackReturnValueHonored = (res.callback.ok && (cb.length > 1));
+    // Compare handle sets, not just counts: equal-sized lists can contain different
+    // windows. A changing desktop can legitimately disagree; report the differences
+    // so the caller can retry on a stable desktop instead of claiming success.
+    res.missingFromCallback = wk.filter(function (h) { return cb.indexOf(h) < 0; });
+    res.missingFromWalk = cb.filter(function (h) { return wk.indexOf(h) < 0; });
+    res.agree = (res.callback.ok && res.walk.ok && (cb.length == wk.length) &&
+        (res.missingFromCallback.length == 0) && (res.missingFromWalk.length == 0));
+    // Zero/one windows in both paths cannot prove callback return propagation.
+    res.callbackReturnValueHonored = (res.callback.ok && (cb.length > 1)) ? true :
+        ((res.callback.ok && res.walk.ok && (wk.length > 1)) ? false : null);
 
     // A small sample of real windows, so the output shows this reached actual UI state.
     res.sample = [];

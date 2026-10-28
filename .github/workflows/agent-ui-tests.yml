@@ -1,0 +1,36 @@
+name: Agent UI automation tests
+
+on:
+  push:
+    paths:
+      - agents/modules_meshcore/win-uiautomation.js
+      - agents/win-uiautomation-mocktest.js
+      - .github/workflows/agent-ui-tests.yml
+  pull_request:
+    paths:
+      - agents/modules_meshcore/win-uiautomation.js
+      - agents/win-uiautomation-mocktest.js
+      - .github/workflows/agent-ui-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mock-tests:
+    name: Mock tests (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Check agent module syntax
+        run: node --check agents/modules_meshcore/win-uiautomation.js
+      - name: Run mock tests (does not validate native Win32 calls)
+        run: node agents/win-uiautomation-mocktest.js

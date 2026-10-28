@@ -1,6 +1,6 @@
 services:
   meshcentral:
-    image: ghcr.io/ylianst/meshcentral:latest
+    image: ghcr.io/mpercy-git/meshcentral:latest
     environment:
       - DYNAMIC_CONFIG=false # Show the option but disable it by default, for safety.
       - HOSTNAME=myserver.domain.com # Set the hostname in the config.json

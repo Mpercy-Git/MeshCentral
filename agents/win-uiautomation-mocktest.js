@@ -5,6 +5,26 @@
 
 const Module = require('module');
 const origLoad = Module._load;
+const { EventEmitter } = require('events');
+
+const agent = { _tsid: null };
+let spawned;
+let childOutput = '{}';
+let childExitCode = 0;
+global.getJSModule = () => 'mock module source';
+const childProcess = {
+    execFile: (file, args, options) => {
+        spawned = { file, args, options };
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.waitExit = () => {
+            child.stdout.emit('data', Buffer.from(childOutput));
+            child.emit('exit', childExitCode);
+        };
+        return child;
+    }
+};
 
 Object.defineProperty(process, 'platform', { value: 'win32' });
 
@@ -19,6 +39,8 @@ const WINDOWS = {
 const ORDER = [100, 200, 300, 400, 500];
 
 let CALLBACK_STOPS_AFTER = null; // simulate "return value not honored" by stopping early
+let CALLBACK_ORDER = null;
+let CALLBACK_THROWS = false;
 
 function wideWrite(v, str, maxChars) {
     const buf = v.toBuffer();
@@ -44,13 +66,15 @@ const GM = {
 
 const impl = {
     EnumWindows: (cb, lparam) => {
-        for (let i = 0; i < ORDER.length; i++) {
+        if (CALLBACK_THROWS) throw new Error('native callback unavailable');
+        const order = CALLBACK_ORDER || ORDER;
+        for (let i = 0; i < order.length; i++) {
             if (CALLBACK_STOPS_AFTER !== null && i >= CALLBACK_STOPS_AFTER) break;
-            cb({ Val: ORDER[i] }, { Val: 0 });
+            if (!cb({ Val: order[i] }, { Val: 0 })) break;
         }
         return { Val: 1 };
     },
-    GetTopWindow: () => ({ Val: ORDER[0] }),
+    GetTopWindow: () => ({ Val: ORDER[0] || 0 }),
     GetWindow: (h, cmd) => { const i = ORDER.indexOf(Number(h)); return { Val: (i >= 0 && i + 1 < ORDER.length) ? ORDER[i + 1] : 0 }; },
     GetForegroundWindow: () => ({ Val: 200 }),
     SetForegroundWindow: (h) => ({ Val: 1 }),
@@ -66,15 +90,18 @@ const impl = {
 Module._load = function (req, parent, isMain) {
     if (req === '_GenericMarshal') return GM;
     if (req === 'user-sessions') return { isRoot: () => true, getProcessOwnerName: () => ({ tsid: 0 }) };
-    if (req === 'MeshAgent') return { _tsid: null };
+    if (req === 'MeshAgent') return agent;
+    if (req === 'child_process') return childProcess;
     return origLoad.apply(this, arguments);
 };
 
-const uia = require('/home/user/MeshCentral/agents/modules_meshcore/win-uiautomation.js');
+const uia = require('./modules_meshcore/win-uiautomation.js');
 
 // ---- assertions ---------------------------------------------------------
 let failures = 0;
+let checks = 0;
 function check(name, cond, detail) {
+    checks++;
     console.log((cond ? '  PASS  ' : '  FAIL  ') + name + (detail ? '   ' + detail : ''));
     if (!cond) failures++;
 }
@@ -135,5 +162,62 @@ r = uia.enumerateWindows({ method: 'walk' });
 check('terminates on cycle', r.count >= 0 && r.windows.length < 10, 'got ' + r.windows.length);
 impl.GetWindow = savedGetWindow;
 
-console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));
+console.log('\n9. selfTest detects incomplete or different handle sets');
+CALLBACK_STOPS_AFTER = 3;
+const partial = uia.selfTest();
+check('3 callback windows versus 5 do not agree', partial.agree === false);
+check('missing callback handles reported', JSON.stringify(partial.missingFromCallback) === '[400,500]');
+CALLBACK_STOPS_AFTER = null;
+CALLBACK_ORDER = [100, 200, 300, 400, 600];
+const different = uia.selfTest();
+check('equal counts with different windows do not agree', different.agree === false);
+check('missing handles reported in both directions', different.missingFromCallback[0] === 500 && different.missingFromWalk[0] === 600);
+CALLBACK_ORDER = [...ORDER].reverse();
+check('same windows in different order agree', uia.selfTest().agree === true);
+CALLBACK_ORDER = null;
+
+console.log('\n10. empty/single-window desktops are inconclusive for callback ABI');
+const savedOrder = [...ORDER];
+ORDER.splice(1);
+const single = uia.selfTest();
+check('single-window paths agree', single.agree === true);
+check('single window does not prove callback ABI', single.callbackReturnValueHonored === null);
+ORDER.splice(0);
+const empty = uia.selfTest();
+check('empty paths agree', empty.agree === true);
+check('empty desktop does not prove callback ABI', empty.callbackReturnValueHonored === null);
+ORDER.push(...savedOrder);
+
+console.log('\n11. callback failures remain visible and auto mode falls back');
+CALLBACK_THROWS = true;
+const failed = uia.selfTest();
+check('callback error reported', failed.callback.ok === false && failed.callback.error.includes('native callback unavailable'));
+check('failed path cannot agree or prove callback ABI', failed.agree === false && failed.callbackReturnValueHonored === null);
+check('automatic enumeration survives callback error', uia.enumerateWindows({}).method === 'walk' && uia.enumerateWindows({}).count === 3);
+CALLBACK_THROWS = false;
+
+console.log('\n12. user-session dispatch relays JSON and preserves arguments');
+childOutput = '{"count":7,"windows":[]}';
+check('session enumeration parses child output', uia.enumerateWindows({}, null).count === 7);
+check('console session uses user-session spawn', spawned.options.type === 1 && spawned.options.uid === null);
+check('child receives module source', spawned.options.env.win_uiautomation === 'mock module source');
+agent._tsid = 12;
+uia.selfTest(null);
+check('selected session uses specified-user spawn', spawned.options.type === 5 && spawned.options.uid === 12);
+agent._tsid = null;
+childOutput = '[{"title":"Notepad"}]';
+check('find relays child result', uia.findWindow('quoted "title"', null)[0].title === 'Notepad');
+const program = Buffer.from(spawned.args[2], 'base64').toString();
+check('find argument encoded as a JSON string', program.includes(JSON.stringify(['quoted "title"'])));
+childOutput = '{"requested":200,"foreground":200,"result":true}';
+check('activation relays child result', uia.activateWindow(200, null).result === true);
+childOutput = 'null';
+check('foreground handles no active window', uia.getForegroundWindow(null) === null);
+childExitCode = 1;
+childOutput = 'session unavailable';
+let dispatchError;
+try { uia.selfTest(null); } catch (e) { dispatchError = String(e); }
+check('child failures reach the caller', dispatchError === 'session unavailable');
+
+console.log('\n' + (failures === 0 ? 'ALL ' + checks + ' CHECKS PASSED' : failures + ' OF ' + checks + ' CHECK(S) FAILED'));
 process.exit(failures === 0 ? 0 : 1);

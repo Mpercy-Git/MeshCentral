@@ -5,6 +5,10 @@ on:
     inputs:
       run_id:
         required: true
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   rerun:
     runs-on: ubuntu-latest
@@ -13,7 +17,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          GH_DEBUG: api
+          FAILED_RUN_ID: ${{ inputs.run_id }}
         run: |
-          gh run watch ${{ inputs.run_id }} > /dev/null 2>&1
-          gh run rerun ${{ inputs.run_id }} --failed
+          gh run watch "$FAILED_RUN_ID" > /dev/null 2>&1
+          gh run rerun "$FAILED_RUN_ID" --failed
