@@ -25,12 +25,10 @@ limitations under the License.
 //
 //   'callback' - EnumWindows() with a WNDENUMPROC built by Marshal.CreateCallbackProxy().
 //                This is the idiomatic Win32 way and the thing actually being proven.
-//                The open question is whether the JS return value of a callback proxy is
-//                propagated back to native code. EnumWindows treats a FALSE return as
-//                "stop enumerating", so if the proxy always yields 0 to the caller this
-//                path returns only the first window. The only prior use of
-//                CreateCallbackProxy in this codebase (modules_meshcore/wifi-scanner-windows.js:130)
-//                is a void callback, so it does not settle the question.
+//                Requires MeshAgent's CreateBoolCallbackProxy: the legacy void proxy
+//                cannot return the BOOL that EnumWindows requires. Both the callback
+//                and its State pointer must be passed to native code. Older agents
+//                safely use the walk path without invoking an incompatible callback.
 //
 //   'walk'     - GetTopWindow(NULL) followed by GetWindow(hwnd, GW_HWNDNEXT). Uses only
 //                scalar returns, no callback ABI involved, so it is the safe fallback.
@@ -126,11 +124,15 @@ function enumWindowsProc(hwnd, lparam)
 //
 function enumViaCallback()
 {
+    if (typeof GM.CreateBoolCallbackProxy != 'function')
+    {
+        throw ('This MeshAgent lacks BOOL callback support; update MeshAgent or use the walk path');
+    }
     _enumAccum = [];
-    _enumProxy = GM.CreateCallbackProxy(enumWindowsProc, 2);
+    _enumProxy = GM.CreateBoolCallbackProxy(enumWindowsProc, 2);
     try
     {
-        user32.EnumWindows(_enumProxy.Callback, 0);
+        user32.EnumWindows(_enumProxy.Callback, _enumProxy.State);
     }
     finally
     {
@@ -336,6 +338,14 @@ function sessionDispatch(tsid, parent, method, args)
         else
         {
             sid = tsid;
+            if (sid != null)
+            {
+                if ((typeof sid != 'number') || !isFinite(sid) || (sid < 0) || (Math.floor(sid) != sid))
+                {
+                    throw ('Invalid Windows session ID');
+                }
+                stype = 5; // An explicit session ID is ignored by native spawn type 1.
+            }
         }
     }
 

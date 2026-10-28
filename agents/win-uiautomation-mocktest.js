@@ -57,7 +57,10 @@ const GM = {
         return { _size: size, toBuffer: () => buf, get String() { return buf.toString().split('\0')[0]; } };
     },
     CreatePointer: function () { const b = Buffer.alloc(8); return { toBuffer: () => b, Deref: () => null }; },
-    CreateCallbackProxy: function (fn, argc) { return { Callback: fn, State: {}, _argc: argc }; },
+    CreateBoolCallbackProxy: function (fn, argc) {
+        const state = {};
+        return { Callback: fn, State: state, _argc: argc };
+    },
     CreateNativeProxy: function (dll) {
         const p = { _dll: dll, CreateMethod: function (n, alias) { p[alias || n] = (...a) => impl[n](...a); } };
         return p;
@@ -66,6 +69,7 @@ const GM = {
 
 const impl = {
     EnumWindows: (cb, lparam) => {
+        if (!lparam || typeof lparam !== 'object') throw new Error('callback State pointer missing');
         if (CALLBACK_THROWS) throw new Error('native callback unavailable');
         const order = CALLBACK_ORDER || ORDER;
         for (let i = 0; i < order.length; i++) {
@@ -196,7 +200,15 @@ check('failed path cannot agree or prove callback ABI', failed.agree === false &
 check('automatic enumeration survives callback error', uia.enumerateWindows({}).method === 'walk' && uia.enumerateWindows({}).count === 3);
 CALLBACK_THROWS = false;
 
-console.log('\n12. user-session dispatch relays JSON and preserves arguments');
+console.log('\n12. legacy agents never invoke a void callback as WNDENUMPROC');
+const boolFactory = GM.CreateBoolCallbackProxy;
+delete GM.CreateBoolCallbackProxy;
+check('older agents enumerate with walk', uia.enumerateWindows({}).method === 'walk');
+const legacy = uia.selfTest();
+check('older agents explain missing native support', legacy.callback.ok === false && legacy.callback.error.includes('lacks BOOL callback support'));
+GM.CreateBoolCallbackProxy = boolFactory;
+
+console.log('\n13. user-session dispatch relays JSON and preserves arguments');
 childOutput = '{"count":7,"windows":[]}';
 check('session enumeration parses child output', uia.enumerateWindows({}, null).count === 7);
 check('console session uses user-session spawn', spawned.options.type === 1 && spawned.options.uid === null);
@@ -205,6 +217,11 @@ agent._tsid = 12;
 uia.selfTest(null);
 check('selected session uses specified-user spawn', spawned.options.type === 5 && spawned.options.uid === 12);
 agent._tsid = null;
+uia.selfTest(27);
+check('explicit session uses specified-user spawn', spawned.options.type === 5 && spawned.options.uid === 27);
+let invalidSession;
+try { uia.selfTest(NaN); } catch (e) { invalidSession = String(e); }
+check('invalid session is rejected before spawning', invalidSession === 'Invalid Windows session ID');
 childOutput = '[{"title":"Notepad"}]';
 check('find relays child result', uia.findWindow('quoted "title"', null)[0].title === 'Notepad');
 const program = Buffer.from(spawned.args[2], 'base64').toString();

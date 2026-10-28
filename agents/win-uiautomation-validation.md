@@ -17,6 +17,10 @@ exercise MeshAgent's native `_GenericMarshal` or an interactive Windows desktop.
    should have `ok: true`; `agree` compares actual handles, not approximate counts.
    Differences are exposed in `missingFromCallback` and `missingFromWalk`. Retry
    on a stable desktop if windows opened or closed during the test.
+   For callback validation, install a binary built from this account's MeshAgent
+   fork with `CreateBoolCallbackProxy` support. Older binaries report the missing
+   capability and safely use `walk`; a server core update alone cannot add native
+   support to an installed agent executable.
 4. `callbackReturnValueHonored: true` means callbacks continued beyond one window.
    `false` means the callback path stopped early while the walk saw multiple
    windows; `null` means there was insufficient evidence. An empty desktop does
